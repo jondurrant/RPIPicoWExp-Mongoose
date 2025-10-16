@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Scan /scan → Table</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{color-scheme:dark light}
+    body{font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;margin:18px;background:#111;color:#eee}
+    .container{max-width:980px;margin:0 auto}
+    header{display:flex;gap:12px;align-items:center;margin-bottom:12px}
+    button{background:#2b6bf6;color:#fff;border:0;padding:8px 12px;border-radius:6px;cursor:pointer}
+    button[disabled]{opacity:.5;cursor:default}
+    .status{font-size:.95rem;color:#9aa}
+    #tableWrap{margin-top:12px;overflow:auto;border-radius:8px;background:#0b0b0b;padding:8px;box-shadow:0 6px 18px rgba(0,0,0,.6)}
+    table{width:100%;border-collapse:collapse;font-size:.95rem}
+    th,td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,.04);text-align:left;white-space:nowrap}
+    th{position:sticky;top:0;background:linear-gradient(#0c0c0c,#0b0b0b);backdrop-filter:blur(2px);z-index:1;color:#cfe}
+    .muted{color:#9aa;font-size:.9rem}
+    .center{display:flex;gap:8px;align-items:center}
+    label{font-size:.9rem}
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1 style="margin:0;font-size:1.1rem">Network Scan</h1>
+      <div class="center">
+        <button id="refreshBtn" type="button">Refresh</button>
+        <label><input id="autoChk" type="checkbox"> Auto-refresh</label>
+      </div>
+      <div style="flex:1"></div>
+      <div class="status" id="status">idle</div>
+    </header>
+
+    <div id="tableWrap" aria-live="polite">
+      <div id="message" class="muted">Click "Refresh" to call /scan and render results.</div>
+    </div>
+  </div>
+
+  <script>
+    (function(){
+      const refreshBtn = document.getElementById('refreshBtn');
+      const statusEl = document.getElementById('status');
+      const tableWrap = document.getElementById('tableWrap');
+      const message = document.getElementById('message');
+      const autoChk = document.getElementById('autoChk');
+      let autoTimer = null;
+
+      function setStatus(text){
+        statusEl.textContent = text;
+      }
+
+      function clearTableArea(){
+        tableWrap.innerHTML = '';
+      }
+
+      function safeText(v){
+        return v === null || v === undefined ? '' : String(v);
+      }
+
+      function buildTable(json){
+        clearTableArea();
+        if(!json || !Array.isArray(json.header) || !Array.isArray(json.rows)){
+          const err = document.createElement('div');
+          err.className = 'muted';
+          err.textContent = 'Invalid JSON format returned from /scan';
+          tableWrap.appendChild(err);
+          return;
+        }
+
+        const table = document.createElement('table');
+        table.setAttribute('aria-label','Scan results');
+
+        const thead = document.createElement('thead');
+        const trh = document.createElement('tr');
+        for(const h of json.header){
+          const th = document.createElement('th');
+          th.textContent = safeText(h);
+          trh.appendChild(th);
+        }
+        thead.appendChild(trh);
+        table.appendChild(thead);
+
+        const tbody = document.createElement('tbody');
+        for(const row of json.rows){
+          const tr = document.createElement('tr');
+          for(let i=0;i<json.header.length;i++){
+            const td = document.createElement('td');
+            // if row shorter than header, show empty
+            td.textContent = safeText(row[i]);
+            tr.appendChild(td);
+          }
+          tbody.appendChild(tr);
+        }
+        table.appendChild(tbody);
+
+        const footer = document.createElement('div');
+        footer.className = 'muted';
+        const now = new Date();
+        footer.textContent = `Rows: ${json.rows.length} • Updated: ${now.toLocaleString()}`;
+
+        tableWrap.appendChild(table);
+        tableWrap.appendChild(footer);
+      }
+
+      async function fetchScan(){
+        setStatus('loading…');
+        refreshBtn.disabled = true;
+        try{
+          const res = await fetch('/scan', {cache:'no-store'});
+          if(!res.ok) throw new Error('HTTP ' + res.status);
+          const json = await res.json();
+          buildTable(json);
+          setStatus('ok');
+        }catch(err){
+          clearTableArea();
+          const e = document.createElement('div');
+          e.className = 'muted';
+          e.textContent = 'Error fetching /scan: ' + err.message;
+          tableWrap.appendChild(e);
+          setStatus('error');
+        }finally{
+          refreshBtn.disabled = false;
+        }
+      }
+
+      refreshBtn.addEventListener('click', fetchScan);
+      autoChk.addEventListener('change', ()=>{
+        if(autoChk.checked){
+          // refresh every 5 seconds
+          autoTimer = setInterval(fetchScan, 5000);
+        }else{
+          clearInterval(autoTimer);
+          autoTimer = null;
+        }
+      });
+
+      // try an initial fetch on load
+      // remove the initial message first
+      message.remove();
+      fetchScan();
+    })();
+  </script>
+</body>
+</html>
